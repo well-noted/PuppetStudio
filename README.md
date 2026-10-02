@@ -22,7 +22,7 @@ GitHub Markdown editor. See the ignored docs/media/README.md capture guide. -->
 The demo plays inline above as a silent animation. **[Original video with audio
 (18 seconds)](docs/media/welcome_clip.mp4).** This public showcase features creator
 Thomas E. Tuoti's illustrated character, with lip synchronization, a timed gesture,
-name/title, subtitles and a stage shadow. Conference artwork and recordings are excluded.
+name/title, subtitles and a stage shadow. 
 
 ## What you can make
 
