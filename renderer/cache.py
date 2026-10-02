@@ -20,6 +20,17 @@ def encode(v):
     v=np.clip(v,0,1)
     return np.uint8(np.rint(np.clip(np.where(v<=.0031308,v*12.92,1.055*v**(1/2.4)-.055),0,1)*255))
 
+def lower_face_alpha(alpha,profile,box):
+    """Protect source eyes/glasses even when an older cache has a full-face mask."""
+    _,y,_,h=box
+    nose=float(profile['nose_y_body'])-y
+    mouth=float(profile['mouth_box_body'][1])-y
+    feather=max(1.,min(8.,(mouth-nose)*.5))
+    rows=np.arange(h,dtype=np.float32)[:,None,None]
+    weight=np.clip((rows-nose)/feather,0,1)
+    weight=weight*weight*(3-2*weight)
+    return alpha*weight
+
 class Actor:
     def __init__(self,out):
         self.out=Path(out).resolve()
@@ -34,7 +45,7 @@ class Actor:
         self.body=clean_art(self.body)
         meta=read(self.out/'assets/assets.json');self.box=meta['bust_box_body'];x,y,w,h=self.box
         px,py,_,_=meta['bust_content_box'];mask=np.asarray(Image.open(self.out/'mask.png').convert('L'))
-        self.alpha=mask[py:py+h,px:px+w,None].astype(np.float32)/255
+        self.alpha=lower_face_alpha(mask[py:py+h,px:px+w,None].astype(np.float32)/255,self.profile,self.box)
         self.matrix=np.asarray(reg['matrix_video_to_body'],np.float32).copy();self.matrix[:,2]-=[x,y]
         video=Path(reg['video'])
         if not video.is_file():

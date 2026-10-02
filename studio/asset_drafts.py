@@ -51,4 +51,4 @@ def generate(root,s,cfg,a):
     bx,by,bw,bh=map(round,profile['bust']);px=(input_image.width-bw)//2;py=(input_image.height-bh)//2;x0+=px-bx;x1+=px-bx;y0+=py-by;y1+=py-by
    bounded=input_image.copy();bounded.paste(output.crop((x0,y0,x1,y1)),(x0,y0));output=bounded
  output.save(dest)
- return {'kind':kind,'path':str(dest.relative_to(root)),'source_sha256':source_hash,'profile_sha256':digest(path(root,s['profile'])) if profile else None,'pose':pose,'description':description}
+ return {'kind':kind,'path':dest.relative_to(root).as_posix(),'source_sha256':source_hash,'profile_sha256':digest(path(root,s['profile'])) if profile else None,'pose':pose,'description':description}

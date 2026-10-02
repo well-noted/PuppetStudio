@@ -57,11 +57,19 @@ def validate(s):
   num(g['seed'],0,2147483647,"g seed");num(g['probability'],0,1,"g probability");num(g['duration_min'],.8,8,"g duration min");num(g['duration_max'],.8,8,"g duration max")
   if int(g['seed'])!=g['seed'] or g['duration_max']<g['duration_min']:raise ValueError('Invalid gesture variation settings')
   if g['mode'] not in ['off','manual','auto','phrases','timed','hybrid']:raise ValueError('Unknown gesture mode')
-  available=([p['id'] for p in asset.get('poses',[])] if asset else []);previous=-1
+  available=([p['id'] for p in asset.get('poses',[])] if asset else []);scopes={}
   for c in g['cues']:
    num(c['start'],0,86400,"c start");num(c['end'],0,86400,"c end")
-   if c['end']<=c['start'] or c['start']<previous or c['pose'] not in available:raise ValueError('Gesture cues must be ordered, non-overlapping and reference an available pose')
-   previous=c['end']
+   scope=c.get('clip')
+   if scope is not None and (not isinstance(scope,str) or not re.fullmatch('[a-zA-Z0-9_-]{1,60}',scope)):raise ValueError('Invalid gesture cue clip ID')
+   if c['end']<=c['start'] or c['pose'] not in available:raise ValueError('Gesture cues need Start < End and an available pose')
+   scopes.setdefault(scope,[]).append(c)
+  for scope in scopes:
+   combined=scopes[scope]+(scopes.get(None,[]) if scope is not None else [])
+   previous=-1
+   for c in sorted(combined,key=lambda c:c['start']):
+    if c['start']<previous:raise ValueError('Gesture cues must not overlap within a clip (including cues applied to every clip)')
+    previous=c['end']
   gate=a['gesture_region']
   if len(gate)!=4:raise ValueError('Invalid gesture region')
   for value in gate:num(value,0,1,"value")

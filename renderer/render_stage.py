@@ -59,11 +59,12 @@ def compose(scene,puppets,bounds,t,face=None,speaker=None,cues=None,gesture_sche
   for i,line in enumerate(lines):draw.text((s['x'],s['y']+i*s['size']*1.3),line,font=sf,fill=(next(a['label']['subtitle_color'] for a in scene['actors'] if a['id']==speaker) if s['speaker_colors'] and speaker else s['color']),anchor='mt')
  return canvas.convert('RGB')
 
-def actor_schedule(actor,cues,duration,interval,demo=False):
+def actor_schedule(actor,cues,duration,interval,demo=False,clip_id=None):
  from gesture_planner import plan
  available=[p['id'] for p in actor.get('asset',{}).get('poses',[])]
  if demo and actor['gestures']['mode'] not in ['off','manual'] and available:return [{'start':1,'end':4,'pose':available[0],'strength':1}]
- return plan(actor,cues,duration,interval,available)
+ scoped={**actor,'gestures':{**actor['gestures'],'cues':[c for c in actor['gestures']['cues'] if not c.get('clip') or c['clip']==clip_id]}}
+ return plan(scoped,cues,duration,interval,available)
 
 def render(output,scene,seconds=9,speaker=None,cache=None,cues=None,intro=None,gesture_schedule=None,offset=0):
  scene=validate(scene)

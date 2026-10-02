@@ -14,11 +14,15 @@ Licensed under the [MIT License](LICENSE).
 > on a fresh Windows installation. Review a short speaking preview before an
 > overnight batch. See [validation status](docs/VALIDATION.md).
 
-> **SHOWCASE PLACEHOLDER — finished production**  
-> Add a demo made specifically for public use, with speech, gestures and captions.
-> Existing conference animation assets are excluded from this showcase.
-> Suggested file: `docs/media/finished-production.gif`.
-<!-- ![Public demonstration of illustrated speech, gestures and captions](docs/media/finished-production.gif) -->
+<!-- For a GitHub video player with sound, replace the GIF below with the bare
+GitHub attachment URL obtained by uploading docs/media/welcome_clip.mp4 in a
+GitHub Markdown editor. See the ignored docs/media/README.md capture guide. -->
+![Finished Puppet Studio production featuring Thomas E. Tuoti, with an explanatory gesture, speaker label and subtitles](docs/media/finished-production.gif)
+
+The demo plays inline above as a silent animation. **[Original video with audio
+(18 seconds)](docs/media/welcome_clip.mp4).** This public showcase features creator
+Thomas E. Tuoti's illustrated character, with lip synchronization, a timed gesture,
+name/title, subtitles and a stage shadow. Conference artwork and recordings are excluded.
 
 ## What you can make
 
@@ -27,7 +31,7 @@ Licensed under the [MIT License](LICENSE).
   for a second speaker, or a shared scene with several puppets.
 - **Custom compositions:** position and resize figures and labels, mirror puppets,
   choose individual text colors, add backdrops, and preview 2D lights and shadows.
-- **Controlled movement:** lip synchronization, upper-face stabilization,
+- **Controlled movement:** lip synchronization, preserved upper-face artwork,
   silence/rest-mouth handling, optional torso breathing and registered gesture poses.
 - **Repeatable batches:** seeded gesture timing, resumable face caches, individual
   clips and assembled productions, progress logs and Windows completion sounds.
@@ -56,6 +60,10 @@ showcase captures use newly generated geometric test artwork.
 5. Create a production and render a **short speaking preview**. Check the mouth,
    silence, colors, gesture edges and subtitles before rendering everything.
 
+Setup displays an environment/install/verification stage bar and elapsed-time
+activity indicator, including while pip is quiet. The bar represents setup
+stages rather than an inferred package-install percentage.
+
 First launch finds Python 3.10–3.12 or downloads a private Python runtime, creates
 Studio's `.venv`, and installs its dependencies. The animation-tool installation
 is a separate guided action; it can download FFmpeg, SadTalker, a private model
@@ -74,7 +82,10 @@ and does not install packages into an external CUDA environment.
 
 Managed tools default to `%LOCALAPPDATA%\PuppetStudio\tools`. Set
 `STUDIO_TOOLS_HOME` before launch to use another drive. Studio does not change
-the global PATH or require administrator access for its managed setup.
+the global PATH or require administrator access for its managed setup. Successful CUDA and
+SadTalker startup verification saves the animation paths for new projects on the
+same computer. Existing custom project paths are preserved; use **Find and verify
+existing animation tools** to configure a project that has no paths yet.
 
 For a fresh-machine test, use the [clean installation checklist](docs/CLEAN_INSTALL_TEST.md).
 When updating an existing installation, preserve `projects/` and `.venv/`.
@@ -369,10 +380,24 @@ python studio.py --project projects/demo render
 It tests captions, intros, gestures and joining with the still-face backend;
 it does not validate neural lip sync.
 
-README showcase images and GIFs belong in `docs/media/`. The current captures
-are review candidates; replace them with your preferred examples before release.
+README showcase images, GIFs and videos belong in `docs/media/`. The finished
+creator demo is `welcome_clip.mp4`, with `finished-production.png` as its poster.
+Other interface captures use synthetic geometric artwork.
 Local projects, source media, generated output and credentials are excluded by
 `.gitignore`; showcase captures remain trackable.
+
+### Mark gestures while listening
+
+Under **Productions → Motion & gestures → Manual gesture timing**, select a clip
+assigned to the displayed speaker. Play it, select the uploaded gesture and
+duration, then click **Add gesture here**. Playback can continue while marking.
+Start and end are measured from that clip's start, excluding its intro slide.
+New cues apply only to that clip; older global cues are labeled as such. Adding
+a cue switches the speaker to manual timing. Save before rendering.
+
+The top-bar **Dark mode / Light mode** button changes authoring controls only.
+Appearance is remembered in this browser; scene backgrounds, captions and
+output artwork retain the colors selected in the production.
 
 ## License and credits
 

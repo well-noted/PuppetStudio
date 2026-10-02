@@ -139,7 +139,10 @@ def action(root,name,a,log=print):
   return discover(root,log) if name=='discover-tools' else install(root,a.get('animation',True),log)
  if name=='diagnose':
   from .diagnostics import check
-  report=check(root,load(root),a.get('model',False),log=log)
+  project=load(root);report=check(root,project,a.get('model',False),log=log)
+  if a.get('model',False):
+   from .machine_setup import remember_verified
+   if remember_verified(project['settings'],report):log('Verified animation paths saved for future projects on this computer.')
   log('Setup report saved in work/setup_report.json')
   return report
  from PIL import Image,ImageOps
@@ -161,8 +164,10 @@ def action(root,name,a,log=print):
   s=get();folder=root/'assets'/s['id'];folder.mkdir(parents=True,exist_ok=True);src=Path(a['path'].strip().strip('"'));src=src if src.is_absolute() else path(root,str(src));kind=a.get('kind','neutral')
   if kind=='profile':save(folder/'profile.json',read(src));s['profile']=str((folder/'profile.json').relative_to(root));s['approved']=False
   else:
-   im=ImageOps.exif_transpose(Image.open(src)).convert('RGBA')
+   with Image.open(src) as uploaded:im=ImageOps.exif_transpose(uploaded).convert('RGBA')
    if im.width*im.height>16000000:raise ValueError('Image limit is 16 megapixels')
+   if kind in ['closed','breath']:
+    with Image.open(path(root,s['asset'])) as master:master_size=master.size
    if kind=='reference':im.save(folder/'reference.png');s['reference']=str((folder/'reference.png').relative_to(root))
    elif kind=='inference-bust':
     if not s.get('profile'):raise ValueError('Detect/import anatomy first, so the exact bust canvas is known')
@@ -170,10 +175,10 @@ def action(root,name,a,log=print):
     if im.size!=(size,size):raise ValueError(f'Inference bust must use the exact padded {size} x {size} canvas')
     im.convert('RGB').save(folder/'inference_bust.png');s['inference_bust']=str((folder/'inference_bust.png').relative_to(root))
    elif kind=='closed':
-    if im.size!=Image.open(path(root,s['asset'])).size:raise ValueError('Closed rest must match neutral canvas')
+    if im.size!=master_size:raise ValueError('Closed rest must match neutral canvas')
     rgba=np.asarray(im,float)/255;Image.fromarray(np.uint8(np.rint((rgba[:,:,:3]*rgba[:,:,3:4]+1-rgba[:,:,3:4])*255))).save(folder/'closed.png');s['closed']=str((folder/'closed.png').relative_to(root))
    elif kind=='breath':
-    if im.size!=Image.open(path(root,s['asset'])).size:raise ValueError('Breathing mask must match neutral canvas')
+    if im.size!=master_size:raise ValueError('Breathing mask must match neutral canvas')
     im.convert('L').save(folder/'breath.png');s['breath']=str((folder/'breath.png').relative_to(root))
    else:
     rgba=np.asarray(im,float)/255;rgb=np.uint8(np.rint((rgba[:,:,:3]*rgba[:,:,3:4]+1-rgba[:,:,3:4])*255))
@@ -190,8 +195,9 @@ def action(root,name,a,log=print):
      else:Image.fromarray(rgb).save(dest)
      clean=cutout_rgba(rgb,rgba[:,:,3] if np.any(rgba[:,:,3]<.99) else None);Image.fromarray(clean).save(folder/'display.png');Image.fromarray(clean[:,:,3]).save(folder/'alpha.png');s.pop('closed',None);s.pop('inference_bust',None);s.pop('breath',None);s.pop('asset_drafts',None);s.update(asset=str((folder/'character.png').relative_to(root)),display=str((folder/'display.png').relative_to(root)),alpha=str((folder/'alpha.png').relative_to(root)),profile=None,approved=False,poses=[])
     elif kind=='pose':
-     key=a['pose']
-     if not re.fullmatch('[A-Za-z0-9_-]{1,60}',key):raise ValueError('Gesture ID must use letters/numbers/underscore/hyphen')
+     key=a.get('pose','')
+     if not re.fullmatch('[A-Za-z0-9_-]{1,60}',key):raise ValueError(f'Gesture ID: entered {key!r}; supported format is 1–60 letters, numbers, underscores or hyphens, e.g. explain')
+     if key in ['character','display','alpha','profile','reference','breath','closed','inference_bust']:raise ValueError(f'Gesture ID {key!r} is reserved for another asset; use gesture_{key} instead')
      neutral=np.asarray(Image.open(path(root,s['asset'])).convert('RGB'))
      if rgb.shape!=neutral.shape:raise ValueError('Gesture must use exact neutral canvas')
      h,w=rgb.shape[:2];outside=np.ones((h,w),bool);outside[round(h*.25):round(h*.66),round(w*.08):round(w*.95)]=False
@@ -286,7 +292,9 @@ def action(root,name,a,log=print):
   from .asset_drafts import generate
   s=get();draft=generate(root,s,cfg,a);s.setdefault('asset_drafts',[]).append(draft);log('Draft saved: '+draft['path']+'. Review before importing; the master figure was not changed.')
  elif name=='import-asset-draft':
-  s=get();draft=next(d for d in s.get('asset_drafts',[]) if d['path']==a['path'])
+  s=get();requested=a.get('path','').replace('\\','/')
+  draft=next((d for d in s.get('asset_drafts',[]) if d['path'].replace('\\','/')==requested),None)
+  if draft is None:raise ValueError('Draft not found for this speaker. Refresh Speakers & art and select an existing draft; if it was removed, generate it again.')
   if digest(path(root,s['asset']))!=draft['source_sha256']:raise ValueError('Draft belongs to older artwork; generate it again')
   if draft.get('profile_sha256') and digest(path(root,s['profile']))!=draft['profile_sha256']:raise ValueError('Anatomy changed since draft generation; generate it again')
   return action(root,'import-asset',{'speaker':s['id'],'kind':draft['kind'],'path':draft['path'],'pose':draft.get('pose','')},log)

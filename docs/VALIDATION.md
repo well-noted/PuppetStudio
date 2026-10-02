@@ -154,3 +154,74 @@ heuristic, not a general anatomical detector. These personal assets are kept
 in a separate asset bundle and are not included in the public Studio package.
 Neural lip synchronization and the new file-upload controls in a real browser
 remain to be tested on the target computer.
+
+## Setup progress and pending speakers
+
+60 Python tests and Node UI checks passed. Setup tests cover retained subprocess
+output, failure status, truthful elapsed/quiet times and activity during quiet
+installation. Environment reuse tests cover successful verification, preserving
+custom paths, missing executables and rejected probes. The authenticated HTTP
+test adds a speaker before artwork, reloads project state, imports artwork and
+adds another pending speaker; both appear and metadata covers only existing art.
+Clean Windows installation and real CUDA verification remain user-side checks.
+
+## Windows draft-path regression coverage
+
+62 Python tests and Node UI checks passed. Added full generate/import breathing
+mask coverage with slash/backslash requests and exact grayscale pixels; missing
+drafts return a descriptive error. Node executes the import button with a
+Windows path and verifies exact path preservation, plus filename-derived gesture
+IDs and collisions. Reserved pose IDs cannot overwrite the neutral master.
+Python compilation passed. Live Windows browser verification remains required.
+
+## Stale-save protection
+
+63 Python tests, Node UI checks and Python compilation passed. The HTTP test
+simulates a completed worker adding a transcript after a browser loads state,
+then verifies that saving the old revision returns HTTP 409 and retains the
+transcript. Render input checks identify missing recording versus transcript.
+The affected user project's transcript bytes are not available here, so recovery
+requires checking/importing that file on Windows.
+
+## Existing-tool search regression coverage
+
+66 Python tests, Node UI checks and compilation passed. Fixtures cover a
+nested sibling checkout under a simulated user home, depth/directory limits,
+excluded application data, fresh reports after an empty search, and Windows
+virtual-environment and WindowsApps Python candidates. Successful mocked
+verification remains necessary before saving discovered paths. Actual discovery
+and CUDA startup on the user's Windows computer remain to be tested.
+
+## Upper-face composition guard
+
+68 Python tests, Node UI checks and compilation passed. Synthetic cache tests
+verify exact source pixels above the nose, a monotonic soft boundary, continued
+mouth animation and no expansion of an existing lower-face mask. The supplied
+finished clip was inspected via sampled face frames and temporal pixel changes;
+the automatic profile's full-face polygon exposed neural eye changes. No source
+face cache/project was supplied, so corrected real-clip recomposition requires
+a user-side rerender. No user media is included in this public package.
+
+## Phrase editing regression
+
+69 Python tests, Node UI checks and compilation passed. Node executes the actual
+rendered textarea handler, verifies custom phrase data and dirty state, and
+switches pages to verify preserved text. Project save/load tests retain both
+custom lists and an intentionally empty list without restoring defaults.
+
+## Manual timing and appearance
+
+72 Python tests, Node UI checks and compilation passed. Tests cover separate
+clip scheduling, legacy cues, overlap rejection, source-to-clip time conversion,
+end clamping, continued playback after marking and stopping at the clip end.
+Theme tests cover toggle state, cookie restoration and unchanged project data.
+Full interactive Windows browser playback still needs user-side validation.
+
+## Finished showcase packaging
+
+The supplied 17.741-second video contains 1280 × 720 video and audio. The public
+copy's SHA-256 matches the upload exactly; a poster was extracted at 4 seconds
+and visually reviewed. All README docs/media references resolve. No code changed
+for this documentation/media update; the prior 72-test validation still applies.
+
+Inline GIF verified: 177 frames, 17.70 seconds, 960 × 540. Original MP4 remains byte-identical; README media references resolve.

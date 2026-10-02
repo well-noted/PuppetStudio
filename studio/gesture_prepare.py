@@ -45,4 +45,4 @@ def prepare(root,s,a):
  # Canonical Studio art is RGB on white; use the exact master outside the gate.
  # PNG alpha is preserved by composite() for standalone RGBA workflows.
  out=Image.new('RGBA',output.size,'white');out.alpha_composite(output);dest=path(root,'assets/'+s['id']+'/draft_pose_'+uuid.uuid4().hex[:10]+'.png');out.convert('RGB').save(dest)
- return {'kind':'pose','path':str(dest.relative_to(root)),'source_sha256':digest(source),'profile_sha256':None,'pose':pose,'description':'Locally prepared gesture; inspect arm boundaries before import.','preparation':report}
+ return {'kind':'pose','path':dest.relative_to(root).as_posix(),'source_sha256':digest(source),'profile_sha256':None,'pose':pose,'description':'Locally prepared gesture; inspect arm boundaries before import.','preparation':report}

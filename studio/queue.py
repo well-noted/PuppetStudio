@@ -50,7 +50,8 @@ def profile_check(root,s):
  if not x<=mx<mx+mw<=x+bw or not y<=my<my+mh<=y+bh or not y<p['nose_y_body']<my+mh<p['jaw_y_body']<y+bh:raise ValueError('Implausible mouth/nose/jaw coordinates')
  if p.get('source_sha256') and p['source_sha256']!=digest(path(root,s['asset'])):raise ValueError('Profile belongs to different artwork')
 def preflight(root,p,productions):
- if not p['media'] or not p['transcript']:raise ValueError('Import recording and transcript first')
+ if not p['media']:raise ValueError('This project has no recording reference. Open Recording and import the source audio/video.')
+ if not p['transcript']:raise ValueError('The recording is configured, but this project has no transcript reference. In Recording, import the existing transcript/transcript.json if it belongs to this recording, or run Transcribe recording. Approving a clip does not create a transcript.')
  roster={s['id']:s for s in p['speakers']};clips={c['id']:c for c in p['clips']}
  if p['settings']['backend']=='sadtalker':
   cfg=p['settings']
@@ -88,7 +89,7 @@ def render_queue(root,selected=None,preview=False,log=print):
     try:
      log('PRODUCTION '+prod['name']+' / CLIP '+c['title'])
      if not reusable(target,keyhash):
-      whole=folder/'speech.wav';command(['ffmpeg','-v','error','-y','-ss',lo,'-i',media,'-t',hi-lo,'-vn','-ac','1','-ar','48000',whole],folder/'audio.log',log);boundaries=cuts(lo,hi,transcript['words'],cfg['chunk_seconds']);schedule=actor_schedule(next(a for a in scene['actors'] if a['id']==s['id']),captions(transcript,lo,hi),hi-lo,scene['motion']['gesture_interval']);parts=[]
+      whole=folder/'speech.wav';command(['ffmpeg','-v','error','-y','-ss',lo,'-i',media,'-t',hi-lo,'-vn','-ac','1','-ar','48000',whole],folder/'audio.log',log);boundaries=cuts(lo,hi,transcript['words'],cfg['chunk_seconds']);schedule=actor_schedule(next(a for a in scene['actors'] if a['id']==s['id']),captions(transcript,lo,hi),hi-lo,scene['motion']['gesture_interval'],clip_id=c['id']);parts=[]
       for n,(a,b) in enumerate(zip(boundaries,boundaries[1:])):
        log(f'PART {n+1}/{len(boundaries)-1} ({b-a:.1f}s)');audio=folder/f'part_{n:03}.wav';part=folder/f'part_{n:03}.mp4';command(['ffmpeg','-v','error','-y','-ss',a,'-i',media,'-t',b-a,'-vn','-ac','1','-ar','48000',audio],folder/'audio.log',log);cache=None
        if cfg['backend']=='sadtalker':

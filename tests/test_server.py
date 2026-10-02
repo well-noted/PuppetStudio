@@ -1,7 +1,7 @@
 import json,os,re,subprocess,sys,tempfile,time,unittest,urllib.request,urllib.error
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
-from studio.core import new,store
+from studio.core import new,store,load
 class ServerTests(unittest.TestCase):
  def test_local_server_auth_save_export_and_path_guard(self):
   with tempfile.TemporaryDirectory() as d:
@@ -24,7 +24,22 @@ class ServerTests(unittest.TestCase):
     for origin,auth in [('http://evil.test',True),(None,False)]:
      with self.assertRaises(urllib.error.HTTPError) as error:request('/api/state',origin=origin,authorized=auth)
      self.assertEqual(error.exception.code,403)
-    p=new();p['name']='HTTP saved';request('/api/save',{'project':p});self.assertEqual(json.loads((root/'project.json').read_text())['name'],'HTTP saved');request('/api/action',{'action':'export','args':{}});self.assertTrue((root/'exports/project.json').exists())
+    p=new();p['name']='HTTP saved';request('/api/save',{'project':p,'revision':request('/api/state')['revision']});self.assertEqual(json.loads((root/'project.json').read_text())['name'],'HTTP saved');request('/api/action',{'action':'export','args':{}});self.assertTrue((root/'exports/project.json').exists())
+    # A speaker is valid before artwork exists, and must remain visible after reload.
+    request('/api/action',{'action':'add-speaker','args':{'name':'Thomas Tuoti','title':'Creator of PuppetStudio'}})
+    pending=request('/api/state');self.assertEqual(len(pending['project']['speakers']),1);self.assertEqual(pending['meta'],{})
+    speaker=pending['project']['speakers'][0];self.assertIsNone(speaker['asset'])
+    from PIL import Image
+    artwork=root/'figure.png';Image.new('RGBA',(32,48),(80,120,90,255)).save(artwork)
+    request('/api/action',{'action':'import-asset','args':{'speaker':speaker['id'],'path':str(artwork),'kind':'neutral'}})
+    request('/api/action',{'action':'add-speaker','args':{'name':'Second speaker'}})
+    mixed=request('/api/state');self.assertEqual(len(mixed['project']['speakers']),2);self.assertEqual(set(mixed['meta']),{speaker['id']})
+    # An older page must not clear a transcript written by a completed worker.
+    older=request('/api/state');newer=load(root);newer['transcript']='transcript/transcript.json';store(root,newer)
+    with self.assertRaises(urllib.error.HTTPError) as conflict:
+     request('/api/save',{'project':older['project'],'revision':older['revision']})
+    self.assertEqual(conflict.exception.code,409);self.assertIn('stale_project',conflict.exception.read().decode())
+    self.assertEqual(request('/api/state')['project']['transcript'],'transcript/transcript.json')
     self.assertTrue(request('/api/credential',{'name':'HF_TOKEN','value':'session-test-secret'})['configured'])
     self.assertNotIn('session-test-secret',json.dumps(request('/api/state')))
     request('/api/action',{'action':'export','args':{}})

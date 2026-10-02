@@ -162,3 +162,90 @@ model environment was installed or changed on the user's computer.
   source overwrite; output reports protected pixel changes.
 - Renderer, snapshots and Studio bounds now include gesture extents so raised
   hands stay visible and the crop remains fixed across poses.
+
+## First-run installation progress
+
+- Setup now displays three stages: isolated environment, dependency install,
+  and import verification. An activity indicator keeps updating during silent
+  pip installation, with elapsed time and time since last output.
+- Download/install output is retained. The stage bar is not a package-install
+  percentage; completion appears only after successful import verification.
+- Noninteractive logs receive periodic timestamp-relative status lines.
+
+## Pending speakers and existing animation environments
+
+- Fixed state refresh after adding speakers without artwork. Artwork metadata
+  is computed only for speakers with an imported figure. Pending speakers remain
+  editable, including in a project containing other completed figures.
+- Clarified configured versus missing project paths; installation is optional
+  when an existing animation environment can be reused.
+- Successful CUDA and SadTalker startup verification saves tool paths for future
+  projects on this computer. Custom project settings are not overwritten.
+
+## Windows draft imports and gesture upload IDs
+
+- Draft import buttons carry paths in HTML data attributes rather than inline
+  JavaScript string literals. Windows backslashes no longer disappear.
+- New drafts use portable paths; missing draft errors explain how to recover.
+- Drafts keep their review section open. Applied breathing masks have a visible
+  status and preview link; proposals still require review before applying.
+- Gesture uploads with blank IDs use a sanitized filename and avoid existing
+  pose IDs. Explicit invalid IDs display the value and supported format.
+- Reserved asset names cannot be used to overwrite neutral artwork as a pose.
+
+## Protect completed jobs from stale saves
+
+- Project state includes a revision. Saving an older page returns a clear
+  conflict instead of overwriting completed transcription or other worker data.
+  Current browser edits remain on screen; reload is required before saving.
+- Render errors distinguish missing recording and transcript references and
+  explain how to reconnect an existing transcript without recognition.
+
+## Broader existing-tool discovery
+
+- Search user-home folders up to three levels deep, capped at 600 directories
+  and ten seconds. Environment/cache directories and symlinks are excluded.
+- Check Windows virtual environments' Scripts/python.exe and the standard
+  WindowsApps Python alias, as well as previous Python/Conda candidates.
+- Discovery always writes work/discovery_report.json; failed empty searches
+  replace the setup report with a current explanation rather than leaving an
+  older report. Existing environments are not modified.
+
+## Preserve upper-face artwork during composition
+
+- Clamp the registered face-cache matte below the calibrated nose, with a short
+  soft transition toward the mouth. Older full-face masks no longer replace
+  the source eyes, glasses or forehead in finished Studio productions.
+- This is a renderer-only correction. Matching neural caches can be reused when
+  recomposing the same clip with unchanged assets, intervals and settings.
+- Eye expressions/blinks from the neural cache are intentionally excluded;
+  lower-face animation and current color correction remain active.
+
+## Editable emphasis phrases
+
+- Fixed the inline textarea handler: a template-literal newline had produced
+  invalid JavaScript, so visible edits did not update the production.
+- A named input handler now stores one trimmed phrase per line, removes blank
+  lines, and marks edits unsaved. Empty lists stay empty after reload.
+
+## Clip playback gesture marking and appearance
+
+- Manual timing has labeled start/end/pose fields and clip-relative timing help.
+  Select a speaker's assigned clip, play its audio/video, choose a pose/duration
+  and click Add gesture here without interrupting playback. End times clamp to
+  the clip boundary; overlap and invalid timing are rejected. Adding selects
+  manual mode. New cues are clip-specific; legacy global cues remain labeled.
+- The queue filters cues by clip before scheduling and splitting long speeches.
+  Separate clips may have matching cue times; conflicts are checked per clip.
+- Explained automatic probability, seed, hold length, interval and spacing.
+- Added a top-bar light/dark toggle. A browser cookie remembers appearance
+  across changing localhost ports; production JSON and render colors stay intact.
+
+## Finished public showcase
+
+- Added the creator-approved welcome_clip.mp4 under docs/media, unchanged with
+  original audio, and a poster extracted from its gesture frame at 4 seconds.
+- Replaced the finished-production README placeholder with an inline animated GIF
+  of the complete demo, plus the original video with audio.
+  Existing conference media, artwork, local projects and credentials stay out
+  of the public distribution.

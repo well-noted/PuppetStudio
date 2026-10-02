@@ -27,7 +27,7 @@ def candidates(repo,root):
         p=Path(p).expanduser().resolve()
         if p.is_file() and p not in found:found.append(p)
     def environment(base):
-        for relative in ('python.exe','bin/python'):add(Path(base)/relative)
+        for relative in ('python.exe','Scripts/python.exe','bin/python'):add(Path(base)/relative)
     explicit=os.environ.get('SADTALKER_PYTHON')
     if explicit:
         add(explicit)
@@ -65,6 +65,7 @@ def candidates(repo,root):
             if result.returncode:notes.append('conda environment listing failed: '+result.stderr.strip()[-500:]);continue
             for env in json.loads(result.stdout).get('envs',[]):environment(env)
         except (OSError,ValueError,subprocess.TimeoutExpired) as e:notes.append('conda listing: '+str(e))
+    if os.environ.get('LOCALAPPDATA'):add(Path(os.environ['LOCALAPPDATA'])/'Microsoft/WindowsApps/python.exe')
     add(sys.executable)
     if shutil.which('python'):add(shutil.which('python'))
     return found,notes

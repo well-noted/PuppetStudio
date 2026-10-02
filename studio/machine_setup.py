@@ -9,6 +9,25 @@ MODELS=['mapping_00109-model.pth.tar','mapping_00229-model.pth.tar','SadTalker_V
 FACEX_BASE='https://github.com/xinntao/facexlib/releases/download/'
 
 def home():return Path(os.environ.get('STUDIO_TOOLS_HOME',str(Path(os.environ.get('LOCALAPPDATA',Path.home()/'.local/share'))/'PuppetStudio'/'tools'))).expanduser().resolve()
+def shared_paths():
+ try:
+  cfg=read(home()/'verified_animation.json');repo=Path(cfg['sadtalker_repo']);python=Path(cfg['sadtalker_python'])
+  if (repo/'inference.py').is_file() and python.is_file():return {'sadtalker_repo':str(repo),'sadtalker_python':str(python)}
+ except (OSError,ValueError,KeyError,TypeError):pass
+ return {}
+
+def inherit_tools(project):
+ cfg=project['settings'];saved=shared_paths()
+ if not cfg.get('sadtalker_repo') and not cfg.get('sadtalker_python'):cfg.update(saved)
+ return project
+
+def remember_verified(cfg,report):
+ checks={x['name']:x['status'] for x in report.get('checks',[])}
+ if checks.get('CUDA import test')!='ok' or checks.get('SadTalker startup')!='ok':return False
+ repo=Path(cfg.get('sadtalker_repo',''));python=Path(cfg.get('sadtalker_python',''))
+ if not (repo/'inference.py').is_file() or not python.is_file():return False
+ save(home()/'verified_animation.json',{'sadtalker_repo':str(repo),'sadtalker_python':str(python),'verified_at':time.time()});return True
+
 def activate():
  bin=home()/'ffmpeg/bin'
  if bin.is_dir():os.environ['PATH']=str(bin)+os.pathsep+os.environ.get('PATH','')
@@ -56,11 +75,30 @@ def inventory():
     name,mem=line.rsplit(',',1);gpus.append({'name':name.strip(),'vram_mib':int(mem.strip())})
   except (OSError,ValueError,subprocess.TimeoutExpired):pass
  mem=min((g['vram_mib'] for g in gpus),default=0)
- return {'platform':platform.system(),'architecture':platform.machine(),'python':sys.executable,'python_version':platform.python_version(),'tools_home':str(home()),'free_gib':round(shutil.disk_usage(home() if home().exists() else Path.home()).free/2**30,1),'gpus':gpus,'ffmpeg':shutil.which('ffmpeg'),'ffprobe':shutil.which('ffprobe'),'suggested_preset':'low-memory' if 0<mem<=6144 else 'standard' if mem else 'composition','note':'NVIDIA device detection is not a CUDA model test. A speaking preview verifies actual inference.'}
+ return {'platform':platform.system(),'architecture':platform.machine(),'python':sys.executable,'python_version':platform.python_version(),'tools_home':str(home()),'free_gib':round(shutil.disk_usage(home() if home().exists() else Path.home()).free/2**30,1),'gpus':gpus,'ffmpeg':shutil.which('ffmpeg'),'ffprobe':shutil.which('ffprobe'),'suggested_preset':'low-memory' if 0<mem<=6144 else 'standard' if mem else 'composition','saved_animation':bool(shared_paths()),'note':'NVIDIA device detection is not a CUDA model test. A speaking preview verifies actual inference.'}
+
+def nearby_checkouts(base,max_depth=3,max_directories=600):
+ # Bounded read-only directory search; skip environments, caches and symlinks.
+ from collections import deque
+ excluded={'appdata','node_modules','models','checkpoints','anaconda3','miniconda3','miniforge3','mambaforge','envs','site-packages','windows','program files','program files (x86)'}
+ pending=deque([(Path(base),0)]);visited=0;found=[];deadline=time.monotonic()+10
+ while pending and visited<max_directories and time.monotonic()<deadline:
+  folder,depth=pending.popleft();visited+=1
+  if folder.name.lower()=='sadtalker' and (folder/'inference.py').is_file():found.append(folder.resolve());continue
+  if depth>=max_depth:continue
+  try:
+   children=[]
+   with os.scandir(folder) as entries:
+    for i,item in enumerate(entries):
+     if i>=2000 or time.monotonic()>=deadline:break
+     if not item.name.startswith('.') and item.name.lower() not in excluded and item.is_dir(follow_symlinks=False):children.append(Path(item.path))
+   for child in sorted(children,key=lambda x:(x.name.lower() not in ['sadtalker','liveportrait'],x.name.lower())):pending.append((child,depth+1))
+  except OSError:continue
+ return found
 
 def repos(root,cfg):
  result=[]
- for value in [cfg.get('sadtalker_repo'),os.environ.get('SADTALKER_REPO'),str(home()/'SadTalker')]:
+ for value in [cfg.get('sadtalker_repo'),shared_paths().get('sadtalker_repo'),os.environ.get('SADTALKER_REPO'),str(home()/'SadTalker')]:
   if value:
    p=Path(value.strip().strip('"')).expanduser()
    if (p/'inference.py').is_file() and p not in result:result.append(p)
@@ -68,27 +106,43 @@ def repos(root,cfg):
   for rel in ['SadTalker','LivePortrait/SadTalker','../LivePortrait/SadTalker']:
    p=(base/rel).resolve()
    if (p/'inference.py').is_file() and p not in result:result.append(p)
+ for p in nearby_checkouts(Path.home()):
+  if p not in result:result.append(p)
  return result
 
 def discover(root,log=print):
- p=load(root);cfg=p['settings'];found=repos(root,cfg)
+ p=load(root);cfg=p['settings'];log('Searching configured, managed, adjacent and user-home folders for SadTalker (home search: 3 levels, up to 600 folders / 10 seconds).');found=repos(root,cfg)
+ log('Found '+str(len(found))+' SadTalker checkout(s).')
+ attempts=[];report=None
  sys.path.insert(0,str(ROOT/'engine/backend'))
  from discover_sadtalker import candidates
  from .diagnostics import check
  for repo in found:
   paths=[]
   if cfg.get('sadtalker_python'):paths.append(Path(cfg['sadtalker_python']))
+  if shared_paths().get('sadtalker_python'):paths.append(Path(shared_paths()['sadtalker_python']))
   paths.append(home()/'sadtalker-env/Scripts/python.exe')
-  candidates_found,notes=candidates(repo,ROOT);paths+=candidates_found
+  try:candidates_found,notes=candidates(repo,ROOT)
+  except (OSError,ValueError) as error:candidates_found=[];notes=[str(error)]
+  paths+=candidates_found
+  for note in notes:log('Discovery note: '+note)
+  log('Checkout: '+str(repo))
   for executable in dict.fromkeys(paths):
    if not executable.is_file():continue
    log('Checking existing animation Python: '+str(executable))
    test=json.loads(json.dumps(p));test['settings'].update(sadtalker_repo=str(repo),sadtalker_python=str(executable),backend='sadtalker')
    report=check(root,test,True,log=log)
+   attempts.append({'repo':str(repo),'python':str(executable),'report':report})
    checks={x['name']:x['status'] for x in report['checks']}
    if checks.get('CUDA import test')=='ok' and checks.get('SadTalker startup')=='ok':
-    p['settings'].update(sadtalker_repo=str(repo),sadtalker_python=str(executable));store(root,p);log('Verified paths saved. No existing environment was changed.');return {'found':True,'repo':str(repo),'python':str(executable)}
- log('No verified existing CUDA environment found. Managed installation is available on Windows x64.');return {'found':False}
+    p['settings'].update(sadtalker_repo=str(repo),sadtalker_python=str(executable));store(root,p);remember_verified(p['settings'],report);save(Path(root)/'work/discovery_report.json',{'found':True,'checkouts':[str(x) for x in found],'attempts':attempts});log('Discovery report saved in work/discovery_report.json.');log('Verified paths saved for this project and future projects on this computer. No existing environment was changed.');return {'found':True,'repo':str(repo),'python':str(executable)}
+ summary={'found':False,'checkouts':[str(x) for x in found],'attempts':attempts,'search':'Configured paths, shared verified tools, managed install, adjacent folders, and user home (depth 3, 600 folders, 10 seconds).'}
+ save(Path(root)/'work/discovery_report.json',summary)
+ if report is None:
+  message='No SadTalker checkout found in the bounded search. Set its folder under Advanced → Animation environment, or use managed installation.' if not found else 'Found SadTalker checkout(s), but no existing Python executable to test. Set its CUDA python.exe under Advanced → Animation environment.'
+  report={'checks':[{'name':'Animation discovery','status':'error','message':message}],'errors':1,'model_test_requested':True}
+ report={**report,'discovery':summary};save(Path(root)/'work/setup_report.json',report)
+ log('No verified existing CUDA environment found. Reports saved in work/discovery_report.json and work/setup_report.json.');return {'found':False}
 
 def install(root,animation=True,log=print):
  if os.name!='nt' or platform.machine().lower() not in ['amd64','x86_64']:raise ValueError('Managed installation currently supports Windows x64. Other platforms can use existing installations.')
@@ -136,5 +190,6 @@ def install(root,animation=True,log=print):
    test=json.loads(json.dumps(p));test['settings'].update(backend='sadtalker',sadtalker_repo=str(repo),sadtalker_python=str(python));report=check(root,test,True,log=log)
    if report['errors']:raise ValueError('Managed setup verification failed. See work/setup_report.json; project paths were not switched.')
    p['settings'].update(backend='sadtalker',sadtalker_repo=str(repo),sadtalker_python=str(python))
+   remember_verified(p['settings'],report)
   store(root,p);save(tools/'installed.json',{'recipe':1,'time':time.time(),'machine':inventory(),'animation':requested_animation});log('Setup verified and paths saved. Render a short speaking preview to verify weights and animation.')
  finally:lock.unlink(missing_ok=True)

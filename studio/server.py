@@ -2,7 +2,7 @@
 import json,mimetypes,os,secrets,subprocess,sys,threading,time,urllib.parse,webbrowser
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
-from .core import ROOT,load,store,save,path,read,action
+from .core import ROOT,load,store,save,path,read,action,sig
 
 def serve(root,port=0,browser=True):
  from .machine_setup import activate
@@ -54,10 +54,10 @@ def serve(root,port=0,browser=True):
        rgb=np.asarray(Image.open(path(root,s['asset'])).convert('RGB'));yy,xx=np.nonzero(np.min(rgb,2)<245)
        if not len(xx):raise ValueError('Artwork for '+s['name']+' is blank; import a visible figure.')
        from studio_puppet import StudioPuppet
-      from .core import actor,uri
-      staged=actor(s);staged['asset']={'neutral_data':uri(path(root,s['asset'])),'poses':[{'id':pose['id'],'image_data':uri(path(root,pose['path']))} for pose in s['poses']]}
-      meta[s['id']]={'bounds':list(StudioPuppet(staged).content_bounds()),'profile':read(path(root,s['profile'])) if s['profile'] else None}
-     self.reply({'project':p,'meta':meta,'job':state['job']});return
+       from .core import actor,uri
+       staged=actor(s);staged['asset']={'neutral_data':uri(path(root,s['asset'])),'poses':[{'id':pose['id'],'image_data':uri(path(root,pose['path']))} for pose in s['poses']]}
+       meta[s['id']]={'bounds':list(StudioPuppet(staged).content_bounds()),'profile':read(path(root,s['profile'])) if s['profile'] else None}
+     self.reply({'project':p,'revision':sig(p),'meta':meta,'job':state['job']});return
     if route.startswith('/files/'):
      target=path(root,urllib.parse.unquote(route[7:]));parts=target.relative_to(root).parts
      if parts[0] not in ['assets','media','transcript','exports','handoff','renders'] and parts!=('work','snapshot.png'):raise ValueError('File unavailable')
@@ -115,7 +115,13 @@ def serve(root,port=0,browser=True):
      if value:os.environ[name]=value
      else:os.environ.pop(name,None)
      self.reply({'ok':True,'configured':bool(value)});return
-    if route=='/api/save':store(root,data['project']);self.reply({'saved':time.time()});return
+    if route=='/api/save':
+     with guard:
+      if busy():raise ValueError('Wait for current job before saving')
+      if data.get('revision')!=sig(load(root)):
+       self.reply({'error':'The saved project changed since this page loaded (for example, transcription completed or another tab saved). Your edits have not overwritten those results. Reload the page before saving again.','code':'stale_project'},409);return
+      store(root,data['project']);revision=sig(load(root))
+     self.reply({'saved':time.time(),'revision':revision});return
     if route=='/api/action':
      name=data['action'];args=data.get('args',{})
      if name in ['transcribe','propose','calibrate','generate-art','generate-asset','snapshot','render','diagnose','discover-tools','install-tools']:self.reply({'job':start(name,args)});return
