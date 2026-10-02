@@ -1,0 +1,62 @@
+# Private maintainer capture instructions; showcase images/GIFs stay public.
+/docs/media/README.md
+/docs/media/review.html
+
+# Python environments, caches and local build/test artifacts.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+/build/
+/dist/
+*.egg-info/
+
+# User projects, source media and generated outputs (including root-level runs).
+/projects/
+/project.json
+/media/
+/assets/
+/transcript/
+/work/
+/renders/
+/exports/
+/handoff/
+
+# Downloaded models, managed tools and external animation checkouts.
+/models/
+/tools/
+/SadTalker/
+/LivePortrait/
+*.safetensors
+*.ckpt
+*.pth
+*.pt
+
+# Local credentials, diagnostics and temporary files.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.log
+*.tmp
+*.lock
+/setup_report.json
+/sadtalker_environment_report.json
+
+# OS and personal editor files.
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+*.code-workspace
+*.swp
+*.swo
+*~

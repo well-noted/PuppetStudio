@@ -1,0 +1,48 @@
+{
+  "schema": 2,
+  "canvas": {
+    "width": 1280,
+    "height": 720
+  },
+  "background": {
+    "color": "#f3f5f9",
+    "image_data": null
+  },
+  "lighting": {
+    "x": 640,
+    "y": 60,
+    "shadow_opacity": 0.3,
+    "shadow_blur": 8,
+    "shadow_length": 140,
+    "intensity": 0.12,
+    "color": "#ffe7bf"
+  },
+  "subtitles": {
+    "x": 640,
+    "y": 658,
+    "width": 1120,
+    "size": 25,
+    "color": "#222222",
+    "panel": true,
+    "speaker_colors": false
+  },
+  "motion": {
+    "gesture_interval": 20,
+    "pause_rest": true
+  },
+  "actors": [],
+  "intro": {
+    "enabled": false,
+    "text": "",
+    "duration": 4,
+    "background": "#f3f5f9",
+    "color": "#233047",
+    "x": 640,
+    "y": 330,
+    "width": 1100,
+    "size": 38
+  },
+  "audio": {
+    "mode": "off"
+  }
+}
