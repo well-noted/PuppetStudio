@@ -315,25 +315,77 @@ def carry_links(root, new, roster, share=.6):
     return carried
 
 
-def visual_samples(root, p, analysis, per_cluster=6, log=print):
+def talker(root, burst, threshold=.006):
+    """(faces in the middle frame, face whose mouth moves most across the burst or None)."""
+    from . import faces
+    ref = burst[len(burst) // 2]
+    found = faces.detect(root, ref)
+    if not found:
+        return found, None
+    if found[0].get('mouth_open') is None:  # Haar-only mode: no mouth measure
+        return found, found[0] if len(found) == 1 else None
+    for f in found:
+        track = []
+        for fr in burst:
+            sub = faces.detect(root, _crop(fr, f['box'], 1.8))
+            if sub and sub[0]['mouth_open'] is not None:
+                track.append(sub[0]['mouth_open'])
+        f['mouth_motion'] = round(float(np.std(track)), 4) if len(track) >= 3 else 0.0
+    best = max(found, key=lambda f: f['mouth_motion'])
+    # Below threshold nobody is visibly talking (voice-over, off-camera, tiny faces).
+    return found, best if best['mouth_motion'] >= threshold else None
+
+
+def positions(samples, width):
+    """Group a cluster's talker boxes by place on screen: [(centre_x, centre_y, count)]."""
+    groups = []
+    for v in samples:
+        b = v.get('talker_box')
+        if not b:
+            continue
+        c = (b[0] + b[2] / 2, b[1] + b[3] / 2)
+        reach = max(2.5 * b[2], .06 * width)
+        for g in groups:
+            if np.hypot(c[0] - g[0], c[1] - g[1]) <= reach:
+                g[2] += 1
+                break
+        else:
+            groups.append([c[0], c[1], 1])
+    return sorted((tuple(g) for g in groups), key=lambda g: -g[2])
+
+
+def visual_samples(root, p, analysis, per_cluster=8, log=print, only=None):
     """Per cluster: sample frames + the face that moves its mouth most while talking."""
     from . import faces, media
     from PIL import Image
     src = path(root, p['media']['path'])
     info = media.video_info(src)
     W, H = info['width'], info['height']
+    analysis['frame_width'], analysis['frame_height'] = W, H
     out_dir = Path(root) / 'work/agent/speakers'
     out_dir.mkdir(parents=True, exist_ok=True)
     result = {}
     for name in analysis['clusters']:
+        if only and name not in only:
+            continue
         rows = [r for r in analysis['segments'] if r['cluster'] == name and r['end'] - r['start'] >= 1.2]
         rows.sort(key=lambda r: -(r['end'] - r['start']) * (0.5 + r['confidence']))
+        # One sample from each of the longest separate turns first: a second
+        # person hiding in this cluster usually owns a whole turn of their own.
         picked = []
-        for r in rows:  # spread samples over the recording
-            if all(abs(r['start'] - q['start']) > 30 for q in picked):
-                picked.append(r)
+        mine = sorted((t for t in turns(analysis) if t['cluster'] == name and t['end'] - t['start'] >= 4),
+                      key=lambda t: -(t['end'] - t['start']))
+        for t in mine:
+            inside = [r for r in rows if r['start'] >= t['start'] and r['end'] <= t['end']]
+            if inside and all(abs(inside[0]['start'] - q['start']) > 20 for q in picked):
+                picked.append(inside[0])
             if len(picked) >= per_cluster:
                 break
+        for r in rows:  # then spread the rest over the recording
+            if len(picked) >= per_cluster:
+                break
+            if all(abs(r['start'] - q['start']) > 30 for q in picked):
+                picked.append(r)
         samples = []
         for r in picked:
             mid = (r['start'] + r['end']) / 2
@@ -345,27 +397,12 @@ def visual_samples(root, p, analysis, per_cluster=6, log=print):
                 continue
             if not len(burst):
                 continue
-            ref = burst[len(burst) // 2]
-            found = faces.detect(root, ref)
-            talker = None
-            if found and found[0].get('mouth_open') is not None:
-                for f in found:
-                    track = []
-                    for fr in burst:
-                        sub = faces.detect(root, _crop(fr, f['box'], 1.8))
-                        if sub and sub[0]['mouth_open'] is not None:
-                            track.append(sub[0]['mouth_open'])
-                    f['mouth_motion'] = round(float(np.std(track)), 4) if len(track) >= 3 else 0.0
-                talker = max(found, key=lambda f: f['mouth_motion'])
-                if talker['mouth_motion'] < .006:
-                    talker = None  # nobody visibly talking (voice-over, remote audio, wide shot)
-            elif len(found) == 1:
-                talker = found[0]
+            found, who = talker(root, burst)
             file = out_dir / f'{name}_{int(mid * 10):07d}.jpg'
-            Image.fromarray(ref).save(file, quality=88)
+            Image.fromarray(burst[len(burst) // 2]).save(file, quality=88)
             samples.append({'time': round(mid, 2), 'frame': file.relative_to(root).as_posix(), 'faces': len(found),
-                            'talker_box': talker['box'] if talker else None,
-                            'talker_quality': faces.quality(talker, W, H) if talker else None,
+                            'talker_box': who['box'] if who else None,
+                            'talker_quality': faces.quality(who, W, H) if who else None,
                             'quote': r['text'][:140]})
         result[name] = samples
         log(f'{name}: {len(samples)} sample frames')
@@ -436,6 +473,8 @@ def relabel(root, start, end, cluster):
             r['cluster'] = cluster
             r['confidence'] = 1.0  # human/agent decision
             changed += 1
+    for c in a['visual']:  # frames from the relabelled stretch no longer say who a cluster is
+        a['visual'][c] = [v for v in a['visual'][c] if not start <= v['time'] <= end]
     store_analysis(root, a)
     return changed
 
@@ -570,12 +609,35 @@ def interleaving(a, short=8.0, minimum=3):
     return sorted(((k[0], k[1], n) for k, n in counts.items() if n >= minimum), key=lambda x: -x[2])
 
 
+def places_warnings(a):
+    """Clusters whose talking face shows up in more than one place on screen."""
+    out = {}
+    width, height = a.get('frame_width', 1280), a.get('frame_height', 720)
+    for name, samples in a.get('visual', {}).items():
+        groups = positions(samples, width)
+        seen = sum(g[2] for g in groups)
+        if len(groups) >= 2 and (groups[1][2] >= 2 or groups[1][2] / seen >= .3):
+            where = ', '.join(f'x={g[0] / width:.2f} y={g[1] / height:.2f} ({g[2]} frames)' for g in groups[:4])
+            out[name] = (f'the talking face appears at {len(groups)} different places ({where}) - possibly two people '
+                         f'(or a camera cut / remote tile). inspect_cluster, then relabel_segments or re-run with num_speakers+1.')
+            continue
+        idle = [v['time'] for v in samples if not v.get('talker_box')]
+        if groups and groups[0][2] >= 3 and len(idle) >= 2:
+            when = ', '.join(_t(t) for t in sorted(idle))
+            out[name] = (f'its usual talker is seen talking in {groups[0][2]} frames but nobody visibly talks at {when} - '
+                         f'someone else (off-camera, small, or on a screen) may be speaking then. Look at those moments '
+                         f'(view_frames), read the transcript around them for hand-overs, and relabel_segments if needed.')
+    return out
+
+
 def summary(a, quotes=2):
     """Compact, agent-readable digest of an analysis."""
     lines = [f"{len(a['clusters'])} voice clusters (k={a['k']}; silhouette by k: {a['silhouette_by_k'] or 'fixed'})."]
     for x, y, n in interleaving(a):
         lines.append(f'! {x} and {y} interrupt each other with short turns {n} times - possibly one person split in two '
                      f'(check frames; merge, relabel_segments, or re-run with fewer speakers).')
+    for name, warn in places_warnings(a).items():
+        lines.append(f'! {name}: {warn}')
     for name, c in a['clusters'].items():
         mine = sorted((r for r in a['segments'] if r['cluster'] == name), key=lambda r: -(r['end'] - r['start']))
         hints = sorted({h['name'] for h in a['name_hints'] if h.get('cluster') == name})

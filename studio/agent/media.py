@@ -73,6 +73,29 @@ def label(image, text, size=18):
     return image
 
 
+def grid(image, box=(0, 0, 1, 1)):
+    """Overlay gridlines labelled in FULL-frame fractions (box = region the image shows)."""
+    im = image.convert('RGB').copy()
+    d = ImageDraw.Draw(im)
+    f = font(max(11, im.width // 70))
+    x0, y0, x1, y1 = box
+    step = .1 if (x1 - x0) > .35 else .05 if (x1 - x0) > .15 else .02
+    for axis in ('x', 'y'):
+        lo, hi = (x0, x1) if axis == 'x' else (y0, y1)
+        v = (int(lo / step) + 1) * step
+        while v < hi - 1e-9:
+            if axis == 'x':
+                px = round((v - x0) / (x1 - x0) * im.width)
+                d.line([px, 0, px, im.height], fill=(0, 255, 255), width=1)
+                d.text((px + 2, 2), f'{v:.2f}', fill=(0, 255, 255), font=f, stroke_width=2, stroke_fill=(0, 0, 0))
+            else:
+                py = round((v - y0) / (y1 - y0) * im.height)
+                d.line([0, py, im.width, py], fill=(0, 255, 255), width=1)
+                d.text((2, py + 2), f'{v:.2f}', fill=(0, 255, 255), font=f, stroke_width=2, stroke_fill=(0, 0, 0))
+            v += step
+    return im
+
+
 def sheet(images, captions=None, columns=None, cell_width=320, background=(32, 32, 32)):
     """Contact sheet of PIL images, each scaled to cell_width, with optional captions."""
     if not images:

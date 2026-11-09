@@ -114,6 +114,15 @@ class SpeakerAnalysisTests(unittest.TestCase):
         flicker = {'segments': [{'start': i * 3, 'end': i * 3 + 2.5, 'cluster': 'S1' if i % 2 else 'S2'} for i in range(10)], 'clusters': {}}
         self.assertEqual(speakers.interleaving(flicker)[0][:2], ('S1', 'S2'))
 
+    def test_visual_warnings_for_a_cluster_holding_two_people(self):
+        box = lambda x: [x, 300, 40, 44]
+        two_places = {'visual': {'S1': [{'time': t, 'talker_box': box(400 if t < 3 else 900)} for t in range(6)]}}
+        self.assertIn('2 different places', speakers.places_warnings(two_places)['S1'])
+        idle = {'visual': {'S2': [{'time': t * 60.0, 'talker_box': box(400) if t < 4 else None} for t in range(6)]}}
+        self.assertIn('nobody visibly talks at 4:00, 5:00', speakers.places_warnings(idle)['S2'])
+        remote = {'visual': {'S3': [{'time': t, 'talker_box': None} for t in range(6)]}}
+        self.assertEqual(speakers.places_warnings(remote), {})  # remote voices: no false alarm
+
 
 class ArtCheckTests(unittest.TestCase):
     def check(self, draw):
@@ -202,8 +211,14 @@ class ToolTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'variable NAME'):
                 tools.call(ctx, 'configure', {'settings': {'gemini_key_env': 'sk-123secret'}}, log=quiet)
             tools.call(ctx, 'add_speaker', {'name': 'Ann'}, log=quiet)
-            tools.call(ctx, 'update_clips', {'add': [{'start': 5, 'end': 20, 'title': 'Two', 'speaker': 'ann'},
-                                                     {'start': 0, 'end': 4, 'title': 'One', 'speaker': 'ann'}]}, log=quiet)
+            self.assertEqual((tools.secs('1:02:03.5'), tools.secs('12:34'), tools.secs(7)), (3723.5, 754.0, 7.0))
+            with self.assertRaises(ValueError):
+                tools.secs('soon')
+            echo = tools.call(ctx, 'update_clips', {'add': [{'start': '0:05', 'end': 20, 'title': 'Two', 'speaker': 'Ann'},
+                                                            {'start': 0, 'end': 4, 'title': 'One', 'speaker': 'ann'}]}, log=quiet)['text']
+            self.assertIn('= 5.0-20.0s', echo)  # m:ss accepted, display name resolved, changes echoed
+            self.assertIn('short (<8 s)', echo)
+            self.assertIn('2 clips', tools.call(ctx, 'list_clips', {'speaker': 'Ann'}, log=quiet)['text'])
             out = tools.call(ctx, 'create_production', {'name': 'Ann solo', 'speakers': ['ann'], 'for_speakers': True}, log=quiet)
             p = load(root)
             prod = p['productions'][0]

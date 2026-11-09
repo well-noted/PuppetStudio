@@ -29,6 +29,9 @@ class Context:
 
     def speaker(self, p, sid):
         s = next((x for x in p['speakers'] if x['id'] == sid), None)
+        if s is None and isinstance(sid, str):  # accept the display name too
+            named = [x for x in p['speakers'] if x['name'].strip().lower() == sid.strip().lower()]
+            s = named[0] if len(named) == 1 else None
         if s is None:
             known = ', '.join(f'{x["id"]} ({x["name"]})' for x in p['speakers']) or 'none yet'
             raise ValueError(f'Unknown speaker {sid!r}; known: {known}')
@@ -91,6 +94,21 @@ def _job_reply(ctx, st):
                       {'job': st['id'], 'status': 'running'})
     return result(f'Job {st["id"]} ({st["tool"]}) {st["status"]}: {st.get("error", "")}\nRecent log:\n' + '\n'.join(st['log_tail'][-20:]),
                   {'job': st['id'], 'status': st['status'], 'error': st.get('error')})
+
+
+def secs(v):
+    """Seconds from a number or a 'm:ss' / 'h:mm:ss' string."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return float(v)
+    if isinstance(v, str) and re.fullmatch(r'\s*\d+(?::\d{1,2}){0,2}(?:\.\d+)?\s*', v):
+        total = 0.0
+        for part in v.strip().split(':'):
+            total = total * 60 + float(part)
+        return total
+    raise ValueError(f'Time {v!r}: use seconds (e.g. 754.5) or m:ss / h:mm:ss (e.g. "12:34")')
+
+
+TIME = {'type': ['number', 'string'], 'description': 'Seconds, or "m:ss" / "h:mm:ss".'}
 
 
 def _t(s):
@@ -162,7 +180,7 @@ def _status(ctx, a, log):
             nxt.append('inspect_cluster each unlinked cluster, merge_clusters duplicates, then add_speaker/update_speaker with cluster=... to link them.')
     except ValueError:
         if p.get('transcript'):
-            nxt.append('analyze_speakers to find who speaks when (use num_speakers if you know the count; over-estimate by 1-2 and merge later).')
+            nxt.append('analyze_speakers to find who speaks when (start without num_speakers; then check every cluster for two people).')
     lines.append(f'Speakers ({len(p["speakers"])}):')
     for s in p['speakers']:
         clips = [c for c in p['clips'] if c['speaker'] == s['id']]
@@ -260,7 +278,7 @@ def _import_transcript(ctx, a, log):
 
 
 @tool('read_transcript', 'Read transcript segments with timestamps (and voice-cluster labels once analyze_speakers has run). Use start/end (seconds) to page through long recordings.',
-      {'start': {'type': 'number'}, 'end': {'type': 'number'}, 'max_segments': {'type': 'integer', 'description': 'Default 200.'},
+      {'start': TIME, 'end': TIME, 'max_segments': {'type': 'integer', 'description': 'Default 200.'},
        'contains': {'type': 'string', 'description': 'Only segments containing this text (case-insensitive).'}})
 def _read_transcript(ctx, a, log):
     p = ctx.project()
@@ -275,7 +293,7 @@ def _read_transcript(ctx, a, log):
         names = {c: v['speaker'] for c, v in an['clusters'].items()}
     except ValueError:
         names = {}
-    lo, hi = a.get('start', 0), a.get('end', float('inf'))
+    lo, hi = secs(a.get('start', 0)), secs(a['end']) if 'end' in a else float('inf')
     needle = (a.get('contains') or '').lower()
     rows = [s for s in segs if s['end'] > lo and s['start'] < hi and needle in s['text'].lower()]
     limit = int(a.get('max_segments', 200))
@@ -289,8 +307,10 @@ def _read_transcript(ctx, a, log):
 
 
 @tool('view_frames', 'Look at video frames. Give times (seconds) from the recording - or from a render with source=<project-relative mp4>. Several times come back as one labelled contact sheet. box=[x0,y0,x1,y1] (fractions 0-1) zooms into a region, e.g. to read a name caption or see a face.',
-      {'times': {'type': 'array', 'items': {'type': 'number'}}, 'source': {'type': 'string'},
-       'box': {'type': 'array', 'items': {'type': 'number'}}, 'width': {'type': 'integer', 'description': 'Per-frame width in the sheet (default 480; 1 frame: up to 1280).'}},
+      {'times': {'type': 'array', 'items': TIME}, 'source': {'type': 'string'},
+       'box': {'type': 'array', 'items': {'type': 'number'}, 'description': '[x0,y0,x1,y1] fractions 0-1 of the full frame; the crop is enlarged for reading.'},
+       'grid': {'type': 'boolean', 'description': 'Overlay a labelled 0.1 grid in full-frame fractions, for choosing box values.'},
+       'width': {'type': 'integer', 'description': 'Per-frame width in the sheet (default 480; one frame or a box: 960).'}},
       ['times'])
 def _view_frames(ctx, a, log):
     from . import media
@@ -298,17 +318,26 @@ def _view_frames(ctx, a, log):
     src = _project_file(ctx, a['source']) if a.get('source') else (path(ctx.root, p['media']['path']) if p.get('media') else None)
     if src is None:
         raise ValueError('No recording imported.')
-    times = a['times'][:16]
+    times = [secs(t) for t in a['times'][:16]]
+    box = a.get('box')
+    if box and not (len(box) == 4 and 0 <= box[0] < box[2] <= 1 and 0 <= box[1] < box[3] <= 1):
+        raise ValueError('box is [x0, y0, x1, y1] as fractions 0-1 with x0<x1 and y0<y1')
     ims = []
     for t in times:
         im = media.frame(src, t)
-        if a.get('box'):
-            x0, y0, x1, y1 = a['box']
+        if box:
+            x0, y0, x1, y1 = box
             im = im.crop((round(x0 * im.width), round(y0 * im.height), round(x1 * im.width), round(y1 * im.height)))
+            target = int(a.get('width', 960))
+            if im.width < target:  # enlarge small regions so captions/faces are readable
+                im = im.resize((target, round(im.height * target / im.width)), Image.Resampling.LANCZOS)
+        if a.get('grid'):
+            im = media.grid(im, box or [0, 0, 1, 1])
         ims.append(im)
+    note = f' Region {box} of the frame, enlarged.' if box else ''
     if len(ims) == 1:
-        return result(f'Frame at {times[0]:.2f}s ({ims[0].width}x{ims[0].height}).', images=[(ims[0], f't={times[0]:.2f}s')])
-    w = int(a.get('width', 480))
+        return result(f'Frame at {times[0]:.2f}s ({ims[0].width}x{ims[0].height}).{note}', images=[(ims[0], f't={times[0]:.2f}s')])
+    w = int(a.get('width', 960 if box else 480))
     return result(f'{len(ims)} frames.', images=[(media.sheet(ims, [f'{t:.1f}s' for t in times], min(4, len(ims)), w), 'frames')])
 
 
@@ -381,6 +410,15 @@ def _inspect(ctx, a, log):
             + ('\nNames this voice addressed (not itself):\n' + '\n'.join(said) if said else ''))
     images = []
     samples = an['visual'].get(c, [])
+    p = ctx.project()
+    if not samples and p.get('media') and p['media'].get('video'):
+        log(f'Sampling frames for {c} (none yet, e.g. after relabel_segments)...')
+        an['visual'].update(sp.visual_samples(ctx.root, p, an, log=log, only=[c]))
+        sp.store_analysis(ctx.root, an)
+        samples = an['visual'].get(c, [])
+    warn = sp.places_warnings(an).get(c)
+    if warn:
+        text += f'\nWARNING: {warn}'
     if samples:
         ims, caps = [], []
         for v in samples[:8]:
@@ -393,7 +431,7 @@ def _inspect(ctx, a, log):
         images.append((media.sheet(ims, caps, min(3, len(ims)), 420), f'{c} sample frames'))
         text += '\nNo red box means no visible face was moving its mouth (remote audio, off-camera, or tiny faces) - zoom with view_frames box=... if needed.'
     else:
-        text += '\nNo frames sampled (audio-only recording or visual=false).'
+        text += '\nNo frames available (audio-only recording, or no segment of 1.2 s or longer).'
     return result(text, None, images)
 
 
@@ -406,11 +444,11 @@ def _merge(ctx, a, log):
 
 
 @tool('relabel_segments', 'Reassign all transcript segments within [start, end] seconds to a cluster (existing or new name such as "S7"). Use when you can see/hear a stretch was attributed to the wrong voice.',
-      {'start': {'type': 'number'}, 'end': {'type': 'number'}, 'cluster': {'type': 'string'}}, ['start', 'end', 'cluster'])
+      {'start': TIME, 'end': TIME, 'cluster': {'type': 'string'}}, ['start', 'end', 'cluster'])
 def _relabel(ctx, a, log):
     from . import speakers as sp
-    n = sp.relabel(ctx.root, a['start'], a['end'], a['cluster'])
-    return result(f'{n} segments relabelled to {a["cluster"]}.')
+    n = sp.relabel(ctx.root, secs(a['start']), secs(a['end']), a['cluster'])
+    return result(f'{n} segments relabelled to {a["cluster"]}. inspect_cluster {a["cluster"]} samples fresh frames for it.')
 
 
 @tool('add_speaker', 'Add a person to the project roster (the name/title are shown on screen), optionally linking a voice cluster to them. Only name people the recording identifies (captions, introductions) or the user supplied; otherwise use a neutral label like "Panelist 2" and say so.',
@@ -459,46 +497,83 @@ def _propose(ctx, a, log):
     return result(f'{len(p["clips"])} clips proposed. Next: assign_clip_speakers, then review them.\n\n' + _clip_lines(p, p['clips'][:40]))
 
 
-def _clip_lines(p, clips):
+def _clip_flags(c, segs):
+    """Quality notes for a clip: very short, or not ending on a sentence."""
+    notes = []
+    if c['end'] - c['start'] < 8:
+        notes.append('short (<8 s)')
+    inside = [x for x in segs or [] if x['end'] > c['start'] + .05 and x['start'] < c['end'] - .05]
+    if inside:
+        if not re.search(r'[.!?]["\')\]]?$', inside[-1]['text'].strip()):
+            notes.append('ends mid-sentence')
+        if inside[-1]['end'] > c['end'] + .3:
+            notes.append(f'cuts the segment ending at {inside[-1]["end"]:.1f}s')
+        if inside[0]['start'] < c['start'] - .3:
+            notes.append(f'starts inside the segment from {inside[0]["start"]:.1f}s')
+    return notes
+
+
+def _clip_lines(p, clips, segs=None):
     names = {s['id']: s['name'] for s in p['speakers']}
-    return '\n'.join(f'{c["id"]} [{_t(c["start"])}-{_t(c["end"])} {c["end"] - c["start"]:.0f}s] speaker={names.get(c["speaker"], "-")} '
-                     f'reviewed={"yes" if c["reviewed"] else "no"} group={c.get("group") or "-"} "{c["title"][:70]}"' for c in clips)
+    out = []
+    for c in clips:
+        flags = _clip_flags(c, segs)
+        out.append(f'{c["id"]} [{_t(c["start"])}-{_t(c["end"])} = {c["start"]:.1f}-{c["end"]:.1f}s, {c["end"] - c["start"]:.0f}s] '
+                   f'speaker={c["speaker"] or "-"} ({names.get(c["speaker"], "unassigned")}) reviewed={"yes" if c["reviewed"] else "no"} '
+                   f'group={c.get("group") or "-"} "{c["title"][:70]}"' + (f'  !! {"; ".join(flags)}' if flags else ''))
+    return '\n'.join(out)
 
 
-@tool('list_clips', 'List clips with times, speaker, review state, group and title. Filter by speaker or unassigned; include_text adds the transcript of each clip.',
+def _segments(ctx, p):
+    return read(path(ctx.root, p['transcript']))['segments'] if p.get('transcript') else None
+
+
+@tool('list_clips', 'List clips with times (m:ss and seconds), speaker id/name, review state, group and title, plus "!!" quality flags (short, ends mid-sentence, cuts a segment). Filter by speaker (id or name) or unassigned; include_text adds the transcript of each clip.',
       {'speaker': {'type': 'string'}, 'unassigned': {'type': 'boolean'}, 'include_text': {'type': 'boolean'},
        'offset': {'type': 'integer'}, 'limit': {'type': 'integer', 'description': 'Default 60.'}})
 def _list_clips(ctx, a, log):
     p = ctx.project()
     clips = p['clips']
     if a.get('speaker'):
-        clips = [c for c in clips if c['speaker'] == a['speaker']]
+        sid = ctx.speaker(p, a['speaker'])['id']
+        clips = [c for c in clips if c['speaker'] == sid]
     if a.get('unassigned'):
         clips = [c for c in clips if not c['speaker']]
     off, lim = int(a.get('offset', 0)), int(a.get('limit', 60))
     page = clips[off:off + lim]
-    if a.get('include_text') and p.get('transcript'):
-        segs = read(path(ctx.root, p['transcript']))['segments']
+    segs = _segments(ctx, p)
+    if a.get('include_text') and segs is not None:
         lines = []
         for c in page:
-            lines.append(_clip_lines(p, [c]))
+            lines.append(_clip_lines(p, [c], segs))
             lines.append('    ' + ' '.join(s['text'].strip() for s in segs if s['end'] > c['start'] and s['start'] < c['end'])[:1500])
             if c.get('intro'):
                 lines.append('    intro: ' + c['intro'])
         text = '\n'.join(lines)
     else:
-        text = _clip_lines(p, page)
+        text = _clip_lines(p, page, segs)
     more = f'\n... {len(clips) - off - lim} more (offset={off + lim})' if len(clips) > off + lim else ''
     return result(f'{len(clips)} clips\n' + text + more)
 
 
-@tool('update_clips', 'Edit, add or remove clips. changes=[{id, start?, end?, title?, speaker?, intro?, group?, reviewed?}], add=[{start, end, title, speaker?, intro?, group?}], remove=[ids]. intro is the optional context card shown before the clip (<=1600 chars, only facts supported by the recording). Set reviewed=true only after reading the clip text and checking its boundaries start and end on complete sentences.',
+@tool('update_clips', 'Edit, add or remove clips. changes=[{id, start?, end?, title?, speaker?, intro?, group?, reviewed?}], add=[{start, end, title, speaker?, intro?, group?}], remove=[ids]. Times are seconds or "m:ss"; speaker is an id or exact name. Changing start/end/speaker clears reviewed unless you set it. intro is the optional context card shown before the clip (<=1600 chars, only facts supported by the recording). Set reviewed=true only after reading the clip text and checking it starts and ends on complete sentences. Returns the affected clips with quality flags.',
       {'changes': {'type': 'array', 'items': {'type': 'object'}}, 'add': {'type': 'array', 'items': {'type': 'object'}},
        'remove': {'type': 'array', 'items': {'type': 'string'}}})
 def _update_clips(ctx, a, log):
+    from ..core import newid
     p = ctx.project()
     byid = {c['id']: c for c in p['clips']}
     fields = {'start', 'end', 'title', 'speaker', 'intro', 'group', 'reviewed'}
+    touched = []
+
+    def clean(ch):
+        ch = dict(ch)
+        for k in ['start', 'end']:
+            if k in ch:
+                ch[k] = secs(ch[k])
+        if ch.get('speaker'):
+            ch['speaker'] = ctx.speaker(p, ch['speaker'])['id']
+        return ch
     for ch in a.get('changes', []):
         c = byid.get(ch.get('id'))
         if c is None:
@@ -506,28 +581,40 @@ def _update_clips(ctx, a, log):
         bad = set(ch) - fields - {'id'}
         if bad:
             raise ValueError(f'Clip fields allowed: {", ".join(sorted(fields))}')
-        if 'speaker' in ch and ch['speaker']:
-            ctx.speaker(p, ch['speaker'])
+        ch = clean(ch)
         if any(k in ch and ch[k] != c[k] for k in ['start', 'end', 'speaker']) and 'reviewed' not in ch:
-            ch = {**ch, 'reviewed': False}
+            ch['reviewed'] = False
         c.update({k: v for k, v in ch.items() if k != 'id'})
-    for n, new_clip in enumerate(a.get('add', [])):
+        touched.append(c['id'])
+    for new_clip in a.get('add', []):
         bad = set(new_clip) - fields
         if bad or not {'start', 'end'} <= set(new_clip):
             raise ValueError('New clips need start and end; allowed fields: ' + ', '.join(sorted(fields)))
-        from ..core import newid
-        cid = newid(p['clips'], new_clip.get('id') or f'clip_{len(p["clips"]) + 1:03}')
+        new_clip = clean(new_clip)
+        cid = newid(p['clips'], f'clip_{len(p["clips"]) + 1:03}')
         p['clips'].append({'id': cid, 'title': new_clip.get('title', f'Clip {cid}'), 'speaker': new_clip.get('speaker'),
                            'intro': new_clip.get('intro', ''), 'group': new_clip.get('group', ''), 'reviewed': bool(new_clip.get('reviewed', False)),
-                           'start': float(new_clip['start']), 'end': float(new_clip['end'])})
+                           'start': new_clip['start'], 'end': new_clip['end']})
+        touched.append(cid)
     gone = set(a.get('remove', []))
+    unknown = gone - set(byid)
+    if unknown:
+        raise ValueError(f'Unknown clip(s) to remove: {", ".join(sorted(unknown))}')
     if gone:
         p['clips'] = [c for c in p['clips'] if c['id'] not in gone]
         for prod in p['productions']:
             prod['clips'] = [x for x in prod['clips'] if x not in gone]
     p['clips'].sort(key=lambda c: c['start'])
     store(ctx.root, p)
-    return result(f'Saved. {len(p["clips"])} clips.')
+    shown = [c for c in p['clips'] if c['id'] in touched]
+    groups = {c.get('group') for c in shown if c.get('group')}
+    pending = [c['id'] for c in p['clips'] if c.get('group') in groups and not c['reviewed']]
+    text = f'Saved. {len(p["clips"])} clips' + (f', removed {", ".join(sorted(gone))}' if gone else '') + '.'
+    if shown:
+        text += '\n' + _clip_lines(p, shown, _segments(ctx, p))
+    if pending:
+        text += f'\nSame group, still unreviewed: {", ".join(pending)}'
+    return result(text)
 
 
 @tool('assign_clip_speakers', 'Assign each clip the speaker linked to the voice cluster that dominates it. Clips with no dominant voice are reported as mixed (split them or fix boundaries). Existing assignments are kept unless overwrite=true.',
@@ -549,11 +636,11 @@ def _assign(ctx, a, log):
 
 @tool('split_clips_by_speaker', 'Split clips at speaker turns (on transcript segment boundaries) so each part has one voice. Interjections shorter than min_seconds stay inside the surrounding part. Productions are updated to use the parts.',
       {'clips': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Clip IDs (default: all).'},
-       'min_seconds': {'type': 'number', 'description': 'Parts shorter than this fold into a neighbour (default 6).'}})
+       'min_seconds': {'type': 'number', 'description': 'Parts shorter than this fold into a neighbour (default 8).'}})
 def _split(ctx, a, log):
     from . import speakers as sp
     p = ctx.project()
-    ch = sp.split_clips(p, sp.load_analysis(ctx.root), a.get('clips'), a.get('min_seconds', 6.0))
+    ch = sp.split_clips(p, sp.load_analysis(ctx.root), a.get('clips'), a.get('min_seconds', 8.0))
     store(ctx.root, p)
     return result(f'Split {len(ch)} clips: ' + '; '.join(f'{k} -> {", ".join(v)}' for k, v in ch.items()) if ch else 'No clip contains more than one speaker turn.', ch)
 
@@ -574,14 +661,14 @@ def _find_refs(ctx, a, log):
     return result(text, items, [(rf.candidate_sheet(ctx.root, s, items), f'{s["id"]} reference candidates')])
 
 
-@tool('set_reference', 'Save a reference photo for a speaker: a candidate number from find_reference_frames, a moment of the video (seconds + optional box=[x0,y0,x1,y1] fractions to crop the person), or an image file path. extra=true adds an additional angle instead of replacing the primary reference.',
-      {'speaker': {'type': 'string'}, 'candidate': {'type': 'integer'}, 'seconds': {'type': 'number'},
+@tool('set_reference', 'Save a reference photo for a speaker: a candidate number from the last find_reference_frames run FOR THIS SPEAKER (candidates are kept per speaker), a moment of the video (seconds + optional box=[x0,y0,x1,y1] fractions to crop the person), or an image file path. extra=true adds an additional angle instead of replacing the primary reference.',
+      {'speaker': {'type': 'string'}, 'candidate': {'type': 'integer'}, 'seconds': TIME,
        'box': {'type': 'array', 'items': {'type': 'number'}}, 'path': {'type': 'string'}, 'extra': {'type': 'boolean'}}, ['speaker'])
 def _set_ref(ctx, a, log):
     from . import references as rf
     p = ctx.project()
     s = ctx.speaker(p, a['speaker'])
-    rel, im = rf.set_reference(ctx.root, p, s, a.get('candidate'), a.get('seconds'), a.get('box'), a.get('path'), a.get('extra', False))
+    rel, im = rf.set_reference(ctx.root, p, s, a.get('candidate'), secs(a['seconds']) if 'seconds' in a else None, a.get('box'), a.get('path'), a.get('extra', False))
     return result(f'Saved {rel} ({im.width}x{im.height}).', {'path': rel}, [(im, rel)])
 
 

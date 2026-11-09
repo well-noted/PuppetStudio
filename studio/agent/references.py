@@ -62,6 +62,22 @@ def find(root, p, s, count=8, samples=24, log=print):
     times = _times(ranges, samples)
     log(f'Scanning {len(times)} moments for clear views of {s["name"]}...')
     for t in times:
+        if centre is None:
+            # No known talking position: the right face is the one whose mouth
+            # moves while this voice talks (not a silent face on a screen).
+            try:
+                burst = media.frame_burst(src, max(0, t - .8), 1.6, 5, W, H)
+            except Exception:
+                continue
+            if not len(burst):
+                continue
+            fs, who = speakers.talker(root, burst)
+            if who is None:
+                continue
+            rgb = burst[len(burst) // 2]
+            found.append({'time': round(t, 2), 'face': who, 'how': 'mouth moving while this voice talks',
+                          'score': faces.quality(who, W, H), 'faces_in_frame': len(fs), 'rgb': rgb})
+            continue
         try:
             rgb = np.asarray(media.frame(src, t))
         except Exception:
@@ -69,19 +85,15 @@ def find(root, p, s, count=8, samples=24, log=print):
         fs = faces.detect(root, rgb)
         if not fs:
             continue
-        if centre is not None:
-            dist = lambda f: np.hypot(f['box'][0] + f['box'][2] / 2 - centre[0], f['box'][1] + f['box'][3] / 2 - centre[1])
-            near = [f for f in fs if dist(f) <= reach]
-            if not near:
-                continue
-            face, how = min(near, key=dist), 'at the talking position'
-        elif len(fs) == 1:
-            face, how = fs[0], 'only face (verify identity)'
-        else:
-            face, how = fs[0], 'largest face (verify identity!)'
+        dist = lambda f: np.hypot(f['box'][0] + f['box'][2] / 2 - centre[0], f['box'][1] + f['box'][3] / 2 - centre[1])
+        near = [f for f in fs if dist(f) <= reach]
+        if not near:
+            continue
+        face, how = min(near, key=dist), 'at the talking position'
         found.append({'time': round(t, 2), 'face': face, 'how': how, 'score': faces.quality(face, W, H), 'faces_in_frame': len(fs), 'rgb': rgb})
     if not found:
-        raise ValueError('No faces found in this speaker\'s segments. Use view_frames to look, then set_reference with seconds and box.')
+        raise ValueError('No visibly talking face found in this speaker\'s segments (off-camera, too small, or turned away). '
+                         'Look with view_frames (box=..., grid=true), then set_reference with seconds and box, or use a photo path.')
     found.sort(key=lambda x: -x['score'])
     folder = root / CANDIDATES / s['id']
     if folder.exists():

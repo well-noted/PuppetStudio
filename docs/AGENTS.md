@@ -36,10 +36,19 @@ hint, not ground truth.
 
 1. Skim `read_transcript` for introductions ("I'm ...", "our panelists are
    ...") and look at a few frames with `view_frames` to estimate how many
-   people speak. Run `analyze_speakers` **without** `num_speakers` first; the
-   automatic choice plus turn smoothing is usually right for the main voices.
-   - If a cluster's frames show two different people, re-run with
-     `num_speakers` one higher, or fix the stretch with `relabel_segments`.
+   people speak. Run `analyze_speakers` **without** `num_speakers` first. The
+   automatic choice finds the main voices, but **similar voices (same room
+   microphone) can share one cluster** - so check every cluster for two people
+   before trusting it. Compare the cluster count with the number of people you
+   expect: fewer clusters than people means a merge to find.
+   - The summary and `inspect_cluster` warn when a cluster's talking face
+     appears in different places on screen - a strong sign of two people.
+   - Hand-overs are where merged voices hide: read the transcript around
+     "over to X", "thank you, X" and check who talks next with `view_frames`.
+   - If a cluster's frames show two different people, fix the stretch with
+     `relabel_segments` (a new cluster name such as `S4` is fine), then
+     `inspect_cluster S4` - it samples fresh frames for the relabelled stretch.
+     Re-running with `num_speakers` one higher is the alternative.
    - If the summary warns that two clusters "interrupt each other with short
      turns", they are probably one voice split in two (different microphone or
      tone): check the frames and merge, or re-run with one fewer.
@@ -48,10 +57,15 @@ hint, not ground truth.
 2. `inspect_cluster` every cluster. The red box marks the face whose mouth
    moved while that voice spoke. Cross-check with quotes and name hints.
    - Remote participants often appear as video tiles with **name captions** -
-     zoom in with `view_frames` and `box=[x0,y0,x1,y1]` to read them.
+     zoom in with `view_frames` and `box=[x0,y0,x1,y1]` (enlarged for you); add
+     `grid=true` first to read off box coordinates. Name badges in a room may
+     be readable the same way.
    - A self-introduction hint ("my name is X") names the cluster that said it.
-     An address hint ("thank you, X") names whoever speaks *next*; treat it as
-     weaker evidence.
+     An address hint ("thank you, X") names whoever speaks *next*, but the next
+     voice can be misattributed - treat it as weaker evidence.
+   - Transcripts misspell names ("Carla" for "Karla"). Prefer the spelling on
+     an on-screen caption or badge; otherwise use the transcript spelling and
+     tell the user it is unconfirmed.
    - Moderators speak in many short turns spread across the whole recording.
 3. `merge_clusters` when two clusters are the same person (same face, same
    name, complementary time spans). Microphones and rooms change voice colour,
@@ -74,6 +88,8 @@ hint, not ground truth.
 - `assign_clip_speakers` then `split_clips_by_speaker` for clips reported as
   mixed. A puppet clip should have **one** voice; short interjections from
   others can stay.
+- `list_clips` marks problems with `!!` (shorter than 8 s, ends mid-sentence,
+  cuts a transcript segment). Clear every flag or have a reason to keep it.
 - Review each clip with `list_clips include_text=true`: start and end on
   complete sentences, a self-contained point, a specific title (not the first
   nine words). Fix with `update_clips`. Remove filler (logistics, "can you hear
@@ -86,9 +102,12 @@ hint, not ground truth.
 ## Reference photos
 
 - `find_reference_frames` scans the speaker's own talking time and ranks faces
-  by size, sharpness, frontality and open eyes. **Verify the candidate is the
-  right person** (compare with `inspect_cluster`); in wide shots the nearest
-  face to the talking position can be a neighbour.
+  by size, sharpness, frontality and open eyes. It keeps only the face at the
+  cluster's talking position, or - when that is unknown - the face whose mouth
+  moves while the voice talks. **Still verify the candidate is the right
+  person** (compare with `inspect_cluster`): a neighbour can sit close, and the
+  same face appearing as the top candidate for two speakers means one is wrong.
+  Candidate numbers belong to that speaker's latest search.
 - Prefer close-ups: remote-video tiles, screen-share speaker views, camera
   zooms. A face under ~80 px tall gives the artist little to work with; add
   more angles with `set_reference extra=true`, or ask the user for a photo
