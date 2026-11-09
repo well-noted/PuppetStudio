@@ -128,8 +128,9 @@ sliders, numeric fields or **Set start/end here**.
 
 Review status stays visible, with approved/unapproved totals. Changing boundaries
 checks the review box; changing speaker or context clears approval. You can
-uncheck any clip that still needs review. Speaker identity is assigned manually;
-automatic diarization is not included.
+uncheck any clip that still needs review. In the browser, speaker identity is
+assigned manually; [headless agent mode](#headless-agent-mode-mcp) adds voice
+clustering and speaker suggestions for an agent to verify.
 
 ![Studio clip review showing source playback, editable boundaries, transcript text and approval status](docs/media/clip-review.png)
 
@@ -278,6 +279,63 @@ information under `handoff/`. The prompt asks the assistant to request the
 necessary transcript and missing context rather than assume access to your disk.
 No subscription to a particular chat interface is required.
 
+## Headless agent mode (MCP)
+
+An AI agent can run the whole workflow without the browser UI. Studio ships a
+dependency-free [Model Context Protocol](https://modelcontextprotocol.io)
+server (stdio) whose tools cover every stage and return images the agent can
+look at: speaker-cluster frames, reference candidates, artwork checks, anatomy
+overlays, layout snapshots and frames from renders.
+
+```powershell
+# Register with Claude Code (any MCP client works the same way):
+claude mcp add puppet-studio -- "C:\path\to\puppet_studio\mcp.cmd" --project "C:\path\to\puppet_studio\projects\my_project"
+```
+
+Or in a client's JSON configuration:
+
+```json
+{"mcpServers": {"puppet-studio": {"command": "C:\\path\\to\\puppet_studio\\.venv\\Scripts\\python.exe",
+  "args": ["C:\\path\\to\\puppet_studio\\studio.py", "--project", "C:\\path\\to\\puppet_studio\\projects\\my_project", "mcp"],
+  "env": {"GEMINI_API_KEY": "optional, for API art drafts"}}}}
+```
+
+What the agent layer adds on top of the Studio actions:
+
+- **Speaker identification.** `analyze_speakers` clusters transcript segments
+  by voice (MFCC fingerprints with turn-taking smoothing, numpy only), samples
+  frames per voice and marks the face whose mouth moves, and collects name
+  hints from introductions and hand-overs. The agent confirms identities from
+  the frames (e.g. video-call name captions), merges or relabels clusters, and
+  links them to speakers; `assign_clip_speakers` and `split_clips_by_speaker`
+  then apply the result to clips.
+- **Reference photos.** `find_reference_frames` ranks clear, frontal, sharp
+  views of a speaker taken only while their voice is talking and at their
+  on-screen position; `set_reference` saves a crop (plus extra angles).
+- **Artwork.** `art_brief` writes a complete prompt and stages the reference
+  images for a browser assistant such as Gemini on the web, operated through
+  the agent's own computer-use/browser tools in the user's signed-in session.
+  `generate_art` calls the Gemini API (`GEMINI_API_KEY`) or the existing
+  compatible images API. `check_artwork` measures drafts (one figure, white
+  background, nothing cropped, detectable frontal face, parted mouth) and
+  suggests re-prompts; `import_artwork` imports, detects anatomy (with a
+  face-crop retry for small faces) and shows the overlay for approval.
+- **Productions and QA.** Create/patch productions, `snapshot` the layout,
+  render previews as background jobs and inspect output frames.
+
+The same tools work from a shell for scripts or agents without MCP:
+
+```powershell
+.\.venv\Scripts\python.exe studio.py --project ".\projects\my_project" agent list
+.\.venv\Scripts\python.exe studio.py --project ".\projects\my_project" agent analyze_speakers --args "{}"
+```
+
+Images from the CLI are saved under `work/agent/cli/`. The agent playbook,
+served to agents by the `guide` tool, is [docs/AGENTS.md](docs/AGENTS.md).
+Voice clustering is a hint, not diarization ground truth, and generated art is
+a draft: the playbook requires agents to verify names, likeness and anatomy
+before approving, and to render a preview before a full batch.
+
 ## Projects, exports and recovery
 
 Everything you author lives under the selected project folder:
@@ -345,8 +403,8 @@ denoising/loudness normalization, not restoration of missing speech detail.
 The still-face backend tests composition and gestures with original audio but
 has no lip synchronization.
 
-Automatic speaker identification, fully automatic faithful puppet creation,
-arbitrary articulated gestures and guaranteed provider compatibility are outside
+Unreviewed automatic speaker identification (agent mode clusters voices as a
+hint for review), fully automatic faithful puppet creation, arbitrary articulated gestures and guaranteed provider compatibility are outside
 this alpha's current scope. Clean Windows installation, broader accessibility,
 interactive browser behavior and live provider integrations need further testing.
 

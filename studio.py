@@ -6,9 +6,18 @@ ROOT=Path(__file__).resolve().parent
 
 def main():
  from studio.core import new,store,read,action
- p=argparse.ArgumentParser(description='Local Puppet Studio');p.add_argument('--project',type=Path,default=ROOT/'projects/my_project');sub=p.add_subparsers(dest='command');s=sub.add_parser('studio');s.add_argument('--no-browser',action='store_true');s.add_argument('--port',type=int,default=0);sub.add_parser('init');sub.add_parser('handoff');s=sub.add_parser('render');s.add_argument('--production',action='append');s.add_argument('--preview',action='store_true');s=sub.add_parser('task');s.add_argument('request',type=Path);s=sub.add_parser('action');s.add_argument('name');s.add_argument('--args',default='{}');a=p.parse_args();root=a.project.expanduser().resolve()
- if not (root/'project.json').exists():root.mkdir(parents=True,exist_ok=True);store(root,inherit_tools(new()))
+ p=argparse.ArgumentParser(description='Local Puppet Studio');p.add_argument('--project',type=Path,default=ROOT/'projects/my_project');sub=p.add_subparsers(dest='command');s=sub.add_parser('studio');s.add_argument('--no-browser',action='store_true');s.add_argument('--port',type=int,default=0);sub.add_parser('init');sub.add_parser('handoff');s=sub.add_parser('render');s.add_argument('--production',action='append');s.add_argument('--preview',action='store_true');s=sub.add_parser('task');s.add_argument('request',type=Path);s=sub.add_parser('action');s.add_argument('name');s.add_argument('--args',default='{}')
+ # Headless agent interfaces: an MCP stdio server, the same tools on the command line, and the background-job worker.
+ sub.add_parser('mcp',help='Run the headless MCP server on stdio');s=sub.add_parser('agent',help='Call one agent tool: agent TOOL --args JSON (agent list shows tools)');s.add_argument('tool');s.add_argument('--args',default='{}');s.add_argument('--wait',type=float,default=600);s=sub.add_parser('agent-job');s.add_argument('job')
+ a=p.parse_args();root=a.project.expanduser().resolve()
+ if not (root/'project.json').exists() and a.command!='agent':root.mkdir(parents=True,exist_ok=True);store(root,inherit_tools(new()))
  log=lambda x:print(x,flush=True)
+ if a.command=='mcp':
+  from studio.agent.mcp_server import main as mcp;mcp(root);return
+ if a.command=='agent-job':
+  from studio.agent.jobs import run_child;run_child(root,a.job);return
+ if a.command=='agent':
+  from studio.agent.cli import main as agent_cli;agent_cli(root,a.tool,a.args,a.wait);return
  if a.command in [None,'studio']:
   from studio.server import serve;serve(root,getattr(a,'port',0),not getattr(a,'no_browser',False));return
  if a.command=='init':return
