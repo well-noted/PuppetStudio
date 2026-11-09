@@ -332,6 +332,7 @@ The same tools work from a shell for scripts or agents without MCP:
 
 Images from the CLI are saved under `work/agent/cli/`. The agent playbook,
 served to agents by the `guide` tool, is [docs/AGENTS.md](docs/AGENTS.md).
+A paste-ready task prompt for a chat agent is in [docs/AGENT_PROMPT.md](docs/AGENT_PROMPT.md).
 Voice clustering is a hint, not diarization ground truth, and generated art is
 a draft: the playbook requires agents to verify names, likeness and anatomy
 before approving, and to render a preview before a full batch.
